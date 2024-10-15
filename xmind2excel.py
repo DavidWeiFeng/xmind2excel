@@ -224,6 +224,6 @@ def run(xmind_path):
 
 
 if __name__ == '__main__':
-    xmind_path_ = r"C:\Users\Chen\Desktop\【通用】排行榜.xmind"
+    xmind_path_ = r"C:\Users\v_ahongchen\Desktop\【通用】排行榜.xmind"
     run(xmind_path_)
 
