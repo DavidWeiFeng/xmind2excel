@@ -1,229 +1,294 @@
-
 from typing import List, Any
 import xlwt
 from xmindparser import xmind_to_dict
-import xlrd
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import os
+import win32com.client
+import pythoncom
+import time
 
-
-
-def resolve_path(dict_, lists, title):
+# 增量索引,表的行数
+index = 2
+big_title=""
+def is_file_locked(file_path):
     """
-    通过递归取出每个主分支下的所有小分支并将其作为一个列表
-    :param dict_:
-    :param lists:
-    :param title:
+    检查Excel文件是否被占用
+    """
+    if not os.path.exists(file_path):
+        return False
+        
+    try:
+        # 尝试打开文件
+        with open(file_path, 'a') as _:
+            pass
+        return False
+    except IOError:
+        return True
+
+def resolve_path(dict_,f,file_path,sheet,style,level=0):
+    """
+    遍历字典结构，当某个层级的所有子节点都不含有 topics 时，打印这些子节点的 title；
+    否则继续递归到下一个子节点。
+    :param dict_: 当前分支的字典
+    :param lists: 存储拼接标题的列表
+    :param title: 上一级的标题
+    :param level: 当前处理的层级
     :return:
     """
-    # 去除title首尾空格
-    title = title.strip()
-    # 若title为空，则直接取value
-    if len(title) == 0:
-        concat_title = dict_["title"].strip()
-    else:
-        concat_title = title + "\t" + dict_["title"].strip()
-    if not dict_.__contains__("topics"):
-        lists.append(concat_title)
-    else:
-        for d in dict_["topics"]:
-            resolve_path(d, lists, concat_title)
+    global index
 
-
-def merge_cells(input_file,row,col,style):
-
-    style_top=style
-    style_top.alignment.horz=xlwt.Alignment.HORZ_LEFT  # 垂直顶部对齐
-    # 使用xlrd打开已有的Excel文件
-    workbook_rd = xlrd.open_workbook(input_file)
-    sheet_rd = workbook_rd.sheet_by_index(0)
-
-    # 创建一个新的工作簿并添加工作表
-    workbook_wt = xlwt.Workbook()
-    sheet_wt = workbook_wt.add_sheet('Sheet1')
-
-    sheet_wt.col(0).width = 256 * 10
-    sheet_wt.col(1).width = 256 * 20
-    sheet_wt.col(2).width = 256 * 30
-    sheet_wt.col(3).width = 256 * 40
-    sheet_wt.col(4).width = 256 * 60
-
-    # 获取行数和列数
-    row_count = row
-    col_count = col
-
-    # 使用双指针遍历每一列并合并相同的单元格
-    for col_index in range(col_count):
-        start_row = 0  # 起始指针
-        end_row = 0  # 结束指针
-
-        while start_row < row_count:
-            # 找到相同内容的单元格范围
-            while end_row + 1 < row_count and sheet_rd.cell_value(end_row, col_index) == sheet_rd.cell_value(
-                    end_row + 1, col_index):
-                end_row += 1
-
-            # 如果start_row和end_row不相同，说明有需要合并的单元格
-            if start_row != end_row:#预期结果不合并单元格
-                # 合并单元格
-                sheet_wt.write_merge(start_row, end_row, col_index, col_index,
-                                     sheet_rd.cell_value(start_row, col_index),style)
-            else:
-                # 如果没有合并，直接写当前单元格
-                if col_index==3 or col_index==4:
-
-
-                    #操作步骤和预期结果左对齐
-                    print(sheet_rd.cell_value(start_row, col_index))
-                    sheet_wt.write(start_row, col_index, sheet_rd.cell_value(start_row, col_index), style_top)
-                else:
-                    sheet_wt.write(start_row, col_index, sheet_rd.cell_value(start_row, col_index), style)
-
-            # 移动指针到下一个未处理的单元格
-            end_row += 1
-            start_row = end_row
-
-    # 保存新的Excel文件
-    workbook_wt.save(input_file)
-
-#将最后一层的多个叶子结点合并
-def mergr_list(list):
-    if len(list)<2:
-        return
-    slow=0
-    fast=1
-    serial=1
-    drop_index=[]
-    ans=[]
-    while fast<len(list):
-        while fast<len(list) and list[slow][-2]==list[fast][-2] :
-            if serial==1:
-                list[slow][-1]=str(serial)+'.'+list[slow][-1]+'\n'
-                serial+=1
-            list[slow][-1]=list[slow][-1]+str(serial)+'.'+list[fast][-1]+'\n'
-            drop_index.append(fast)
-            fast+=1
-            serial+=1
-        slow=fast
-        fast+=1
-        serial=1
-    for i in range(0,len(list)):
-        if i in drop_index:
-            continue
+    try:
+        if "topics" not in dict_:
+            # 每次写入前检查文件是否被占用
+            if is_file_locked(file_path):
+                raise IOError("Excel文件正在被其他程序使用，请关闭后重试")
+                
+            sheet.write(index, 0, level, style)
+            sheet.write(index, 1, dict_['title'], style)
+            sheet.write(index, 2, dict_['title'], style)
+            index += 1
+            
+            try:
+                f.save(file_path)
+            except Exception:
+                raise IOError("无法保存Excel文件，请确保文件未被打开")
+            return
+            
         else:
-            ans.append(list[i])
-    return ans
+            # 检查子节点是否都不含有 topics
+            all_leaf_nodes = all("topics" not in sub_dict for sub_dict in dict_["topics"])
 
-def process_operation_steps(arr):
-    if not arr:
-        return ""
-    serial=1
-    ans=""
-    for elem in arr:
-        ans=ans+str(serial) + '.' + elem+'\n'
-        serial += 1
-    return ans
+            if all_leaf_nodes:
+                # 打印当前层级下的所有子节点的标题
+                for  topic in dict_["topics"]:
+                    numbered_topics=topic["title"]
+                    # numbered_topics=[f"{i + 1}. {sub_dict['title']}" for i, sub_dict in enumerate(dict_['topics'])]
+                    # topics_str='\n'.join(numbered_topics)
+                    sheet.write(index, 0, level,style)
+                    sheet.write(index, 1, dict_['title'],style)
+                    sheet.write(index, 2, numbered_topics,style)
+                    index += 1
+                    f.save(file_path)
+                    print(f"Level {level}: {dict_['title']} -> 子节点: {numbered_topics}")
+                return
+            else:
+                # 打印当前层级并继续递归处理
+                print(f"Level {level}: {dict_['title']}(继续递归下一级)")
+                sheet.write(index, 0, level,style)
+                sheet.write(index, 1, dict_['title'],style)
+                index+=1
+                # print(index)
+                f.save(file_path)
+                for sub_dict in dict_["topics"]:
+                    resolve_path(sub_dict,f,file_path,sheet,style,level + 1)
+    except Exception as e:
+        print(f"处理节点 {dict_['title']} 时发生错误: {str(e)}")
+
+
+
 
 def xmind_to_excel(list_, excel_path):
     f = xlwt.Workbook()
     # 生成单sheet的Excel文件，sheet名自取
-    sheet = f.add_sheet("XX模块", cell_overwrite_ok=True)
+    sheet = f.add_sheet("模块", cell_overwrite_ok=True)
     style = xlwt.XFStyle()
     # 设置单元格的对齐方式
     alignment = xlwt.Alignment()
     alignment.wrap = 1  # 开启换行
     # alignment.vert = xlwt.Alignment.VERT_TOP  # 垂直顶部对齐
-    alignment.horz = xlwt.Alignment.HORZ_CENTER  # 水平居中
+    alignment.horz=xlwt.Alignment.HORZ_LEFT
+    # alignment.horz = xlwt.Alignment.HORZ_CENTER  # 水平居中
     alignment.vert = xlwt.Alignment.VERT_CENTER  # 垂直居中
     style.alignment = alignment
 
     # 第一行固定的表头标题
-    row_header = ["模块", "功能", "子功能","操作步骤","预期结果"]
+    # 创建加粗样式
+    bold_style = xlwt.XFStyle()
+    font = xlwt.Font()
+    font.bold = True  # 设置字体为加粗
+    bold_style.font = font
+
+    row_header = ["级别", "功能点", "测试点", "操作步骤", "预期结果","测试结果","负责人","备注"]
     for i in range(0, len(row_header)):
-        sheet.write(0, i, row_header[i])
+        sheet.write(0, i, row_header[i],bold_style)
 
     # 设置列宽度（单位是1/256字符宽度）
     sheet.col(0).width = 256 * 10
-    sheet.col(1).width = 256 * 20
-    sheet.col(2).width = 256 * 30
-    sheet.col(3).width = 256 * 40
-    sheet.col(4).width = 256 * 60
+    sheet.col(1).width = 256 * 50
+    sheet.col(2).width = 256 * 50
+    sheet.col(3).width = 256 * 60
+    sheet.col(4).width = 256 * 80
+    sheet.col(5).width = 256 * 15
+    sheet.col(6).width = 256 * 15
+    sheet.col(7).width = 256 * 15
+    sheet.col(8).width = 256 * 15
 
-
-    # 增量索引,表的行数
-    index = 1
-
-    for h in range(0, len(list_)):
-        lists: List[Any] = []
-        resolve_path(list_[h], lists, "")
-        # print(lists)
-        for i in range(0, len(lists)):
-            str=lists[i]
-            list=str.split("\t")
-            lists[i]=list
-        print(lists)
-
-        lists=mergr_list(lists)
-        for j in range(0, len(lists)):
-
-            print(lists[j])
-            n=len(lists[j])
-
-            #最小有两个（模块-预期结果）
-            module=lists[j][0] #模块
-            expect_result=lists[j][-1] #预期结果
-            sheet.write(index, 0, module,style)
-            sheet.write(index, 4, expect_result,style)
-
-
-            if n==3:
-                function = lists[j][1]  # 功能
-                sheet.write(index, 1, function, style)
-            elif n==4:
-                function = lists[j][1]  # 功能
-                sub_function = lists[j][2]  # 子功能
-                sheet.write(index, 1, function, style)
-                sheet.write(index, 2, sub_function, style)
-            elif n>=5:
-
-                function = lists[j][1]  # 功能
-                sub_function = lists[j][2]  # 子功能
-                operation_steps = lists[j][3:-1]  # 操作步骤
-                steps = process_operation_steps(operation_steps)
-                sheet.write(index, 1, function, style)
-                sheet.write(index, 2, sub_function, style)
-                sheet.write(index, 3, steps, style)
-
-            index+=1
-            f.save(excel_path)
-
-            # for n in range(0, len(lists[j])):
-            #     # 生成第一列的序号
-            #     sheet.write(j + index + 1, 0, j + index + 1)
-            #     sheet.write(j + index + 1, n + 1, lists[j][n])
-            #     # 自定义内容，比如：测试点/用例标题、预期结果、实际结果、操作步骤、优先级……
-            #     # 这里为了更加灵活，除序号、模块、功能点的标题固定，其余以【自定义+序号】命名，如：自定义1，需生成Excel表格后手动修改
-            #     if n >= 2:
-            #         sheet.write(0, n + 1, "自定义" + str(n - 1))
-            # # 遍历完lists并给增量索引赋值，跳出for j循环，开始for h循环
-            # if j == len(lists) - 1:
-            #     index += len(lists)
+    sheet.write(1, 0, 1, style)
+    sheet.write(1, 1, list_['title'], style)
     f.save(excel_path)
-    merge_cells(excel_path,index,5,style)
 
-
+    for h in range(0, len(list_['topics'])):
+        lists: List[Any] = []
+        resolve_path(list_['topics'][h],f,excel_path,sheet,style,2)
+        # print(lists)
 
 def run(xmind_path):
-    # 将XMind转化成字典
-    xmind_dict = xmind_to_dict(xmind_path)
-    # print("将XMind中所有内容提取出来并转换成列表：", xmind_dict)
-    # Excel文件与XMind文件保存在同一目录下
-    excel_name = xmind_path.split('\\')[-1].split(".")[0] + '.xls'
-    excel_path = "\\".join(xmind_path.split('\\')[:-1]) + "\\" + excel_name
-    print(excel_path)
-    # print("通过切片得到所有分支的内容：", xmind_dict[0]['topic']['topics'])
-    xmind_to_excel(xmind_dict[0]['topic']['topics'], excel_path)
+    try:
+        # 检查文件是否存在
+        if not os.path.exists(xmind_path):
+            raise FileNotFoundError("找不到指定的XMind文件")
+            
+        # 检查文件扩展名
+        if not xmind_path.lower().endswith('.xmind'):
+            raise ValueError("请选择正确的XMind文件")
+            
+        # 将XMind转化成字典
+        xmind_dict = xmind_to_dict(xmind_path)
+        excel_name = os.path.splitext(os.path.basename(xmind_path))[0] + '.xls'
+        excel_path = os.path.join(os.path.dirname(xmind_path), excel_name)
+        
+        xmind_to_excel(xmind_dict[0]['topic'], excel_path)
+        return True, f"转换完成！文件保存路径: {excel_path}"
+    except Exception as e:
+        return False, f"转换失败：{str(e)}"
 
+class XMindConverterUI:
+    def __init__(self):
+        self.window = tk.Tk()
+        self.window.title("XMind转Excel工具")
+        self.window.geometry("600x400")  # 增加窗口高度以容纳提示信息
+        
+        # 创建主框架
+        self.main_frame = tk.Frame(self.window, padx=20, pady=20)
+        self.main_frame.pack(expand=True)
+        
+        # 添加标题标签
+        self.title_label = tk.Label(
+            self.main_frame, 
+            text="XMind转Excel工具",
+            font=("Arial", 16, "bold")
+        )
+        self.title_label.pack(pady=(0, 20))
+        
+        # 添加说明文本
+        self.instruction_text = tk.Label(
+            self.main_frame,
+            text="使用说明：\n" 
+                 "1. 点击\"选择XMind文件\"按钮选择要转换的文件\n"
+                 "2. 确保目标Excel文件未被打开\n"
+                 "3. 点击\"开始转换\"按钮进行转换\n"
+                 "4. 转换完成后会在同目录生成Excel文件",
+            justify=tk.LEFT,
+            font=("Arial", 10)
+        )
+        self.instruction_text.pack(pady=(0, 20))
+        
+        # 文件路径框架
+        self.path_frame = tk.Frame(self.main_frame)
+        self.path_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 添加路径标签
+        self.path_label = tk.Label(
+            self.path_frame, 
+            text="文件路径：",
+            font=("Arial", 10)
+        )
+        self.path_label.pack(side=tk.LEFT)
+        
+        # 文件路径显示
+        self.path_var = tk.StringVar()
+        self.path_entry = tk.Entry(
+            self.path_frame, 
+            textvariable=self.path_var, 
+            width=50,
+            state='readonly'  # 设置为只读
+        )
+        self.path_entry.pack(side=tk.LEFT, padx=5)
+        
+        # 按钮框架
+        self.button_frame = tk.Frame(self.main_frame)
+        self.button_frame.pack(pady=10)
+        
+        # 选择文件按钮
+        self.select_button = tk.Button(
+            self.button_frame, 
+            text="选择XMind文件", 
+            command=self.select_file,
+            width=15,
+            height=2
+        )
+        self.select_button.pack(side=tk.LEFT, padx=5)
+        
+        # 转换按钮
+        self.convert_button = tk.Button(
+            self.button_frame, 
+            text="开始转换", 
+            command=self.convert,
+            width=15,
+            height=2
+        )
+        self.convert_button.pack(side=tk.LEFT, padx=5)
+        
+        # 添加状态标签
+        self.status_var = tk.StringVar()
+        self.status_var.set("就绪")
+        self.status_label = tk.Label(
+            self.main_frame,
+            textvariable=self.status_var,
+            font=("Arial", 10),
+            fg="gray"
+        )
+        self.status_label.pack(pady=(10, 0))
+        
+    def select_file(self):
+        file_path = filedialog.askopenfilename(
+            title="选择XMind文件",
+            filetypes=[("XMind文件", "*.xmind"), ("所有文件", "*.*")]
+        )
+        if file_path:
+            self.path_var.set(file_path)
+            self.status_var.set("已选择文件，请点击\"开始转换\"")
+            
+    def convert(self):
+        xmind_path = self.path_var.get().strip()
+        if not xmind_path:
+            messagebox.showerror("错误", "请先选择XMind文件！")
+            return
+            
+        # 获取目标Excel文件路径
+        excel_name = os.path.splitext(os.path.basename(xmind_path))[0] + '.xls'
+        excel_path = os.path.join(os.path.dirname(xmind_path), excel_name)
+        
+        # 检查Excel文件是否被占用
+        if os.path.exists(excel_path) and is_file_locked(excel_path):
+            messagebox.showerror(
+                "错误", 
+                f"Excel文件 '{excel_name}' 正在被其他程序使用！\n"
+                "请关闭该文件后重试。"
+            )
+            return
+            
+        self.status_var.set("正在转换...")
+        self.window.update()  # 更新界面显示
+        
+        success, message = run(xmind_path)
+        if success:
+            self.status_var.set("转换完成")
+            messagebox.showinfo("成功", message)
+        else:
+            self.status_var.set("转换失败")
+            messagebox.showerror("错误", message)
+            
+    def run(self):
+        # 设置窗口图标（如果有的话）
+        try:
+            self.window.iconbitmap("icon.ico")  # 如果有图标文件的话
+        except:
+            pass
+            
+        self.window.mainloop()
 
 if __name__ == '__main__':
-    xmind_path_ = r"C:\Users\v_ahongchen\Desktop\【通用】排行榜.xmind"
-    run(xmind_path_)
-
+    app = XMindConverterUI()
+    app.run()
