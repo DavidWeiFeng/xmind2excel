@@ -290,5 +290,10 @@ class XMindConverterUI:
         self.window.mainloop()
 
 if __name__ == '__main__':
-    app = XMindConverterUI()
-    app.run()
+    # app = XMindConverterUI()
+    # app.run()
+    test_file = r'C:\Users\v_ahongchen\Desktop\炽墨幻境—蹴鞠王.xmind'  # 替换为实际的文件路径
+    print(f"开始处理文件: {test_file}")
+    
+    success, message = run(test_file)
+    print(f"处理结果: success={success}, message={message}")
